@@ -1,11 +1,12 @@
 """
 Middle-Earth Strategy Battle Game – Hero Tracker
-Two-sided army tracker with support for non-unique (repeatable) heroes.
+Two-sided army tracker with support for non-unique (repeatable) heroes and casualty thresholds.
 """
 
 import sys
 import json
 import urllib.request
+import math
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -30,6 +31,11 @@ TEXT_MAIN    = "#fffffe"
 TEXT_DIM     = "#c8b8b9"
 BTN_BG       = "#a58650"
 BTN_HOVER    = "#c9a96e"
+
+# Status colors for indicator badges
+COLOR_INACTIVE = "#555555"
+COLOR_BROKEN   = "#d97706"  # Amber/Orange
+COLOR_QUARTERED = "#dc2626" # Deep Red
 
 SIDE_COLOURS = ["#2a5aaa", "#aa2a2a"]
 SIDE_NAMES   = ["Side 1", "Side 2"]
@@ -98,7 +104,7 @@ QGroupBox::title {{
 QSpinBox {{
     background-color: {BG_MID}; color: {TEXT_MAIN};
     border: 1px solid {ACCENT}; border-radius: 3px;
-    padding: 2px 4px; min-width: 46px; min-height: 22px;
+    padding: 2px 4px; min-width: 52px; min-height: 22px;
 }}
 QSpinBox::up-button, QSpinBox::down-button {{
     background-color: {ACCENT}; border: none; width: 16px;
@@ -117,6 +123,14 @@ QStatusBar {{
 }}
 QFrame#separator {{ background-color: {ACCENT}; max-height: 1px; }}
 QSplitter::handle {{ background-color: {ACCENT}; width: 2px; }}
+
+QLabel#badge {{
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-weight: bold;
+    font-size: 11px;
+    color: #ffffff;
+}}
 """
 
 
@@ -160,7 +174,6 @@ def parse_armies(raw: dict) -> tuple[list[str], dict[str, list[dict]]]:
     for hero in heroes:
         if not isinstance(hero, dict):
             continue
-            
         hero_name = hero.get("name", "?")
         entry = {
             "name":   hero_name,
@@ -171,32 +184,22 @@ def parse_armies(raw: dict) -> tuple[list[str], dict[str, list[dict]]]:
             "unique": is_unique(hero),
             "unit_type": hero.get("unit_type", []),
         }
-
-        # Safely extract faction names from the hero's faction list
         for faction_ref in hero.get("factions", []):
             fname = ""
             if isinstance(faction_ref, str):
                 fname = faction_ref
             elif isinstance(faction_ref, dict):
                 fname = faction_ref.get("name", "")
-            
             if not fname:
                 continue
-
-            # Dynamically initialize the faction list if it doesn't exist yet
             if fname not in army_heroes:
                 army_heroes[fname] = []
-                
-            # Append a copy of the hero to this faction
             army_heroes[fname].append(dict(entry))
 
-    # Sort heroes inside each army alphabetically
     for fname in army_heroes:
         army_heroes[fname].sort(key=lambda h: h["name"].casefold())
 
-    # Get a cleanly sorted list of all active army/faction names
     army_names = sorted(army_heroes.keys(), key=str.casefold)
-    
     return army_names, army_heroes
 
 
@@ -252,11 +255,10 @@ class StatRow(QWidget):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hero card  (one physical card on the board)
-# card_id is unique per card instance, e.g. "Orc Captain#0", "Orc Captain#1"
+# Hero card
 # ─────────────────────────────────────────────────────────────────────────────
 class HeroCard(QGroupBox):
-    remove_requested = pyqtSignal(str)   # emits card_id
+    remove_requested = pyqtSignal(str)
 
     def __init__(self, hero: dict, card_id: str, instance_label: str, parent=None):
         title = hero["name"] if not instance_label else f"{hero['name']}  {instance_label}"
@@ -268,7 +270,6 @@ class HeroCard(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setSpacing(3)
 
-        # Unit type badge
         unit_types = hero.get("unit_type", [])
         if unit_types:
             badge_text = "  ·  ".join(unit_types)
@@ -309,11 +310,8 @@ class HeroCard(QGroupBox):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Hero selector popup
-# For unique heroes: single checkbox-style (selecting/deselecting)
-# For non-unique heroes: a spin box to pick how many copies to add
 # ─────────────────────────────────────────────────────────────────────────────
 class HeroSelectorRow(QWidget):
-    """One row in the selector: hero name + unique badge + count control."""
 
     def __init__(self, hero: dict, current_count: int, parent=None):
         super().__init__(parent)
@@ -324,12 +322,10 @@ class HeroSelectorRow(QWidget):
         row.setContentsMargins(4, 2, 4, 2)
         row.setSpacing(8)
 
-        # Name
         name_lbl = QLabel(hero["name"])
         name_lbl.setMinimumWidth(180)
         row.addWidget(name_lbl)
 
-        # Badge
         if unique:
             badge = QLabel("Unique")
             badge.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px; font-style: italic;")
@@ -365,10 +361,6 @@ class HeroSelectorRow(QWidget):
 
 
 class HeroSelector(QWidget):
-    """
-    Popup that shows all heroes for the current army.
-    Emits confirmed( list[ (hero_dict, count) ] ) with count >= 1.
-    """
     confirmed = pyqtSignal(list)
 
     def __init__(self, heroes: list[dict], current_counts: dict[str, int], parent=None):
@@ -385,7 +377,6 @@ class HeroSelector(QWidget):
         hdr.setStyleSheet(f"color: {GOLD}; font-weight: bold; font-size: 11px;")
         root.addWidget(hdr)
 
-        # Column headers
         col_hdr = QHBoxLayout()
         for txt, w in [("Name", 180), ("Type", 72), ("Count", 52)]:
             l = QLabel(txt)
@@ -399,7 +390,6 @@ class HeroSelector(QWidget):
         sep.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(sep)
 
-        # Scrollable list of rows
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -448,15 +438,15 @@ class SidePanel(QWidget):
         self._army_heroes: dict[str, list] = {}
         self._current_army: str | None     = None
 
-        # Track how many copies of each hero name are on the board
-        # { hero_name: count }
         self._hero_counts: dict[str, int] = {}
-        # All live card widgets keyed by card_id = "HeroName#N"
         self._hero_cards:  dict[str, HeroCard] = {}
 
         self._build_ui()
 
-    # ── UI ───────────────────────────────────────────────────────────────────
+    def _update_badge_style(self, badge: QLabel, bg_color: str):
+        # Simply update the background color. Qt already knows the object name is "badge".
+        badge.setStyleSheet(f"background-color: {bg_color};")
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -469,6 +459,57 @@ class SidePanel(QWidget):
         )
         root.addWidget(hdr)
 
+        # ── Roster Status Tracker (Casualties, Broken & Quartered) ────────────
+        status_box = QGroupBox("Roster Status Tracker")
+        status_layout = QGridLayout(status_box)
+        status_layout.setSpacing(10)
+
+        # Labels
+        lbl_total = QLabel("Starting Units:")
+        lbl_kills = QLabel("Kills / Casualties:")
+        status_layout.addWidget(lbl_total, 0, 0)
+        status_layout.addWidget(lbl_kills, 1, 0)
+
+        # Inputs
+        self.spin_total = QSpinBox()
+        self.spin_total.setRange(1, 500)
+        self.spin_total.setValue(1)
+        self.spin_total.valueChanged.connect(self._recalculate_thresholds)
+        status_layout.addWidget(self.spin_total, 0, 1)
+
+        self.spin_kills = QSpinBox()
+        self.spin_kills.setRange(0, 500)
+        self.spin_kills.setValue(0)
+        self.spin_kills.valueChanged.connect(self._recalculate_thresholds)
+        status_layout.addWidget(self.spin_kills, 1, 1)
+
+        # Info Displays
+        self.lbl_broken_calc = QLabel("Broken at: --")
+        self.lbl_broken_calc.setStyleSheet(f"color: {TEXT_DIM}; font-size: 11px;")
+        status_layout.addWidget(self.lbl_broken_calc, 0, 2)
+
+        self.lbl_quarter_calc = QLabel("Quartered at: --")
+        self.lbl_quarter_calc.setStyleSheet(f"color: {TEXT_DIM}; font-size: 11px;")
+        status_layout.addWidget(self.lbl_quarter_calc, 1, 2)
+
+        # Status Badges
+        self.badge_broken = QLabel("BROKEN")
+        self.badge_broken.setObjectName("badge")
+        self.badge_broken.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self.badge_broken, 0, 3)
+
+        self.badge_quartered = QLabel("QUARTERED")
+        self.badge_quartered.setObjectName("badge")
+        self.badge_quartered.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self.badge_quartered, 1, 3)
+
+        root.addWidget(status_box)
+        
+        # Reset visual lights initially
+        self._update_badge_style(self.badge_broken, COLOR_INACTIVE)
+        self._update_badge_style(self.badge_quartered, COLOR_INACTIVE)
+
+        # ── Army Setup ────────────────────────────────────────────────────────
         army_lbl = QLabel("Army")
         army_lbl.setObjectName("section")
         root.addWidget(army_lbl)
@@ -495,6 +536,7 @@ class SidePanel(QWidget):
         sep.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(sep)
 
+        # ── Dashboard Layout ──────────────────────────────────────────────────
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -513,7 +555,37 @@ class SidePanel(QWidget):
         self.scroll.setWidget(self.cards_container)
         root.addWidget(self.scroll, stretch=1)
 
-    # ── Population ────────────────────────────────────────────────────────────
+    #def _update_badge_style(self, badge: QLabel, bg_color: str):
+    #    badge.setStyleSheet(f"background-color: {bg_color}; id: 'badge';")
+
+    def _recalculate_thresholds(self):
+        total = self.spin_total.value()
+        kills = self.spin_kills.value()
+
+        # MESBG rules: Broken at EQUAL TO OR GREATER THAN 50% casualties
+        # For 10 units, 10 / 2 = 5 kills. For 11 units, 11 / 2 = 5.5 -> rounds up to 6 kills.
+        broken_threshold = math.ceil(total / 2)
+
+        # Quartered: Remaining models are strictly LESS THAN 25%
+        # This is mathematically identical to casualties being strictly GREATER THAN 75%
+        # For 10 units: 75% is 7.5 kills. Strictly greater than 7.5 means 8 kills.
+        # For 12 units: 75% is 9 kills. Strictly greater than 9 means 10 kills.
+        quartered_threshold = math.floor(total * 0.75) + 1
+
+        self.lbl_broken_calc.setText(f"Broken at: {broken_threshold} kills")
+        self.lbl_quarter_calc.setText(f"Quartered at: {quartered_threshold} kills")
+
+        # Evaluate current conditions and light up badges
+        if kills >= broken_threshold:
+            self._update_badge_style(self.badge_broken, COLOR_BROKEN)
+        else:
+            self._update_badge_style(self.badge_broken, COLOR_INACTIVE)
+
+        if kills >= quartered_threshold:
+            self._update_badge_style(self.badge_quartered, COLOR_QUARTERED)
+        else:
+            self._update_badge_style(self.badge_quartered, COLOR_INACTIVE)
+
     def populate(self, army_names: list[str], army_heroes: dict[str, list]):
         self._army_names  = army_names
         self._army_heroes = army_heroes
@@ -525,7 +597,6 @@ class SidePanel(QWidget):
         self.army_combo.blockSignals(False)
         self.army_combo.setEnabled(True)
 
-    # ── Slots ─────────────────────────────────────────────────────────────────
     def _on_army_changed(self, index: int):
         if index <= 0:
             self._current_army = None
@@ -549,18 +620,10 @@ class SidePanel(QWidget):
         sel.show()
 
     def _on_heroes_confirmed(self, selections: list[tuple[dict, int]]):
-        """
-        selections: list of (hero_dict, desired_count).
-        We reconcile desired vs current state:
-          - add cards for newly requested copies
-          - remove cards for copies no longer wanted
-          - heroes not in the list at all get their count set to 0
-        """
         desired: dict[str, tuple[dict, int]] = {
             hero["name"]: (hero, count) for hero, count in selections
         }
 
-        # Remove heroes whose desired count dropped (or went to 0)
         for hero_name in list(self._hero_counts.keys()):
             current = self._hero_counts[hero_name]
             wanted  = desired[hero_name][1] if hero_name in desired else 0
@@ -572,7 +635,6 @@ class SidePanel(QWidget):
                 else:
                     self._hero_counts[hero_name] = wanted
 
-        # Add cards for heroes whose desired count increased (or are new)
         for hero_name, (hero, wanted) in desired.items():
             current = self._hero_counts.get(hero_name, 0)
             for i in range(current, wanted):
@@ -585,7 +647,6 @@ class SidePanel(QWidget):
         self.clear_btn.setEnabled(bool(self._hero_cards))
 
     def _instance_label(self, hero_name: str, index: int, total: int) -> str:
-        """Return a label like '#2' only when there are multiple copies."""
         if total <= 1:
             return ""
         return f"#{index + 1}"
@@ -603,15 +664,9 @@ class SidePanel(QWidget):
             card.deleteLater()
 
     def _on_remove_card(self, card_id: str):
-        """
-        Remove one card.  If it was not the last copy, renumber survivors
-        so there are no gaps in the #N labels.
-        """
         hero_name = card_id.rsplit("#", 1)[0]
         self._remove_card(card_id)
 
-        # Rebuild the remaining copies for this hero from scratch so indices
-        # stay contiguous and titles are correct.
         remaining = [
             cid for cid in self._hero_cards
             if cid.rsplit("#", 1)[0] == hero_name
@@ -620,7 +675,6 @@ class SidePanel(QWidget):
         if count == 0:
             self._hero_counts.pop(hero_name, None)
         else:
-            # Rename surviving cards to #0…#N-1
             heroes_list = self._army_heroes.get(self._current_army, [])
             hero_data   = next((h for h in heroes_list if h["name"] == hero_name), None)
             self._hero_counts[hero_name] = count
@@ -648,7 +702,6 @@ class SidePanel(QWidget):
 
         self.empty_lbl.hide()
         COLS = 2
-        # Sort cards: hero name first, then instance index
         def sort_key(cid):
             name, idx = cid.rsplit("#", 1)
             return (name.casefold(), int(idx))
@@ -679,8 +732,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MESBG Hero Tracker")
-        self.resize(1200, 760)
+        self.setWindowTitle("MESBG Hero & Casualties Tracker")
+        self.resize(1240, 840)
         self._build_ui()
         self._load_data()
 
@@ -703,7 +756,7 @@ class MainWindow(QMainWindow):
         t = QLabel("Middle-Earth Strategy Battle Game")
         t.setObjectName("title")
         txt.addWidget(t)
-        s = QLabel("Two-sided Hero Tracker – Might · Will · Fate · Wounds")
+        s = QLabel("Two-sided Match Tracker – Might · Will · Fate · Wounds & Casualties")
         s.setObjectName("subtitle")
         txt.addWidget(s)
         top.addLayout(txt)
@@ -728,7 +781,7 @@ class MainWindow(QMainWindow):
             panel.army_combo.setEnabled(False)
             splitter.addWidget(panel)
 
-        splitter.setSizes([600, 600])
+        splitter.setSizes([620, 620])
         root.addWidget(splitter, stretch=1)
 
     def _load_data(self):
@@ -745,6 +798,7 @@ class MainWindow(QMainWindow):
         army_names, army_heroes = parse_armies(raw)
         for panel in self.side_panels:
             panel.populate(army_names, army_heroes)
+            panel._recalculate_thresholds() # trigger initial state display
         self.reload_btn.setEnabled(True)
         self.statusBar().showMessage(f"Loaded {len(army_names)} armies.  Ready.")
 
@@ -758,11 +812,10 @@ class MainWindow(QMainWindow):
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
-    app.setApplicationName("MESBG Hero Tracker")
+    app.setApplicationName("MESBG Match Tracker")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
