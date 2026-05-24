@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESBG Match Tracker</title>
+    <style>
+        :root {
+            --bg-dark: #3b1d1e;
+            --bg-mid: #4d2527;
+            --bg-card: #5a2d2f;
+            --accent: #841912;
+            --accent-light: #b52218;
+            --gold: #a58650;
+            --gold-light: #c9a96e;
+            --text-main: #fffffe;
+            --text-dim: #c8b8b9;
+            --btn-bg: #a58650;
+            --btn-hover: #c9a96e;
+            --color-might: #e8c44a;
+            --color-will: #4ab8e8;
+            --color-fate: #a84ae8;
+            --color-wounds: #e84a4a;
+            --color-inactive: #555555;
+            --color-broken: #d97706;
+            --color-quartered: #dc2626;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: "Segoe UI", Arial, sans-serif;
+            font-size: 13px;
+            padding: 12px 15px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--accent);
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .title-area { display: flex; align-items: center; gap: 12px; }
+        .title-icon { font-size: 26px; color: var(--gold); }
+        h1 { color: var(--gold-light); font-size: 20px; letter-spacing: 1px; font-weight: bold; }
+        p.subtitle { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 800px) {
+            .main-container { grid-template-columns: 1fr; }
+        }
+
+        .side-panel {
+            background-color: rgba(0,0,0,0.1);
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .side-title {
+            font-size: 16px;
+            font-weight: bold;
+            padding-bottom: 4px;
+            margin-bottom: 8px;
+        }
+        .side-0 .side-title { color: #2a5aaa; border-bottom: 2px solid #2a5aaa; }
+        .side-1 .side-title { color: #aa2a2a; border-bottom: 2px solid #aa2a2a; }
+
+        .group-box {
+            background-color: var(--bg-card);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 14px;
+            position: relative;
+        }
+        .group-box::before {
+            content: attr(data-title);
+            position: absolute;
+            top: -10px; left: 10px;
+            background-color: var(--bg-card);
+            padding: 0 6px;
+            color: var(--gold-light);
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: auto 65px 1fr 100px;
+            gap: 10px;
+            align-items: center;
+            margin-top: 6px;
+        }
+        .section-lbl {
+            font-size: 13px; font-weight: bold;
+            color: var(--gold); margin-top: 4px; margin-bottom: 4px;
+        }
+        
+        input, select {
+            background-color: var(--bg-mid);
+            color: var(--text-main);
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            padding: 4px 8px;
+        }
+        input[type="number"] { width: 60px; text-align: center; height: 24px; }
+        select { width: 100%; height: 32px; margin-bottom: 8px; }
+        select:disabled { background-color: #331819; color: #8a7060; border-color: #5a4530; }
+
+        .calc-lbl { color: var(--text-dim); font-size: 11px; }
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            color: #ffffff;
+            transition: background-color 0.2s;
+        }
+
+        .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+        button {
+            background-color: var(--btn-bg);
+            color: #1a0a0a;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover { background-color: var(--btn-hover); }
+        button:pressed { background-color: var(--accent); color: var(--text-main); }
+        button:disabled { background-color: #5a4530; color: #8a7060; cursor: not-allowed; }
+        button.danger { background-color: var(--accent); color: var(--text-main); }
+        button.danger:hover { background-color: var(--accent-light); }
+
+        .separator {
+            background-color: var(--accent);
+            height: 1px;
+            margin: 8px 0;
+            border: none;
+        }
+
+        .scroll-area {
+            max-height: 500px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .scroll-area::-webkit-scrollbar { width: 8px; }
+        .scroll-area::-webkit-scrollbar-track { background: var(--bg-mid); border-radius: 4px; }
+        .scroll-area::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        @media (max-width: 1100px) {
+            .cards-grid { grid-template-columns: 1fr; }
+        }
+
+        .hero-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .hero-title-lbl { color: var(--gold-light); font-weight: bold; font-size: 13px; }
+        .hero-type-badge { font-size: 10px; font-style: italic; color: #7adfaa; margin-bottom: 4px; word-break: break-all; }
+        .hero-type-badge.unique { color: var(--text-dim); }
+
+        .stat-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .stat-lbl { width: 48px; font-weight: bold; font-size: 11px; }
+        .progress-bg {
+            background-color: var(--bg-mid);
+            border: 1px solid var(--accent);
+            border-radius: 3px;
+            height: 8px;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .progress-bar { height: 100%; transition: width 0.2s; }
+        .max-lbl { color: var(--text-dim); font-size: 10px; width: 30px; }
+
+        .card-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 3px;
+            padding-top: 4px;
+            border-top: 1px solid var(--accent);
+        }
+        .card-actions button { flex: 1; padding: 4px 8px; font-size: 12px; height: 26px; }
+
+        /* Pop-up Dialog Selection Styling */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background-color: var(--bg-card);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            width: 380px; height: 400px;
+            display: flex;
+            flex-direction: column;
+            padding: 8px;
+        }
+        .modal-hdr { color: var(--gold); font-weight: bold; font-size: 11px; margin-bottom: 6px; }
+        .modal-col-hdr { display: flex; font-size: 10px; font-weight: bold; color: var(--text-dim); padding-bottom: 2px; }
+        .modal-scroll { overflow-y: auto; flex-grow: 1; margin-bottom: 6px; padding-right: 2px; }
+        .modal-scroll::-webkit-scrollbar { width: 8px; }
+        .modal-scroll::-webkit-scrollbar-track { background: var(--bg-mid); border-radius: 4px; }
+        .modal-scroll::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+        
+        .selector-row {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            background-color: var(--bg-mid);
+            margin-bottom: 2px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+        .selector-row:hover { background-color: var(--bg-card); }
+        .sel-name { width: 180px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+        .sel-type { width: 72px; font-size: 10px; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-area">
+            <div class="title-icon">⚔</div>
+            <div>
+                <h1 id="title">Middle-Earth Strategy Battle Game</h1>
+                <p id="subtitle">Two-sided Match Tracker – Might · Will · Fate · Wounds & Casualties</p>
+            </div>
+        </div>
+        <button id="reload-btn" onclick="loadData()">⟳ Reload Data</button>
+    </header>
+    <hr class="separator">
+
+    <div class="main-container">
+        <div id="side-panel-0" class="side-panel side-0"></div>
+        <div id="side-panel-1" class="side-panel side-1"></div>
+    </div>
+
+    <div id="selector-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-hdr">Select heroes · set count for non-unique</div>
+            <div class="modal-col-hdr">
+                <div style="width: 180px;">Name</div>
+                <div style="width: 72px;">Type</div>
+                <div>Count</div>
+            </div>
+            <hr class="separator">
+            <div class="modal-scroll" id="modal-rows-container"></div>
+            <button onclick="confirmSelection()">Confirm Selection</button>
+        </div>
+    </div>
+
+    <script>
+        const DATA_URL = "https://nowforwrath.github.io/data2024.json";
+        
+        let armyNames = [];
+        let armyHeroes = {};
+        let activeModalSide = null;
+
+        // Tracks independent structural states for both Side 1 and Side 2 panels
+        let sides = [
+            { name: "Side 1", color: "#2a5aaa", currentArmy: null, heroCounts: {}, cards: {}, total: 1, kills: 0 },
+            { name: "Side 2", color: "#aa2a2a", currentArmy: null, heroCounts: {}, cards: {}, total: 1, kills: 0 }
+        ];
+
+        const statMetadata = [
+            { label: "Might", key: "might", color: "#e8c44a" },
+            { label: "Will", key: "will", color: "#4ab8e8" },
+            { label: "Fate", key: "fate", color: "#a84ae8" },
+            { label: "Wounds", key: "wounds", color: "#e84a4a" }
+        ];
+
+        // Setup the initial structural framework for both panels
+        function buildPanels() {
+            [0, 1].forEach(idx => {
+                const p = sides[idx];
+                const container = document.getElementById(`side-panel-${idx}`);
+                container.innerHTML = `
+                    <div class="side-title" style="color: ${p.color}; border-bottom-color: ${p.color};">⚔  ${p.name}</div>
+                    <div class="group-box" data-title="Roster Status Tracker">
+                        <div class="status-grid">
+                            <label>Starting Units:</label>
+                            <input type="number" id="spin-total-${idx}" min="1" max="500" value="1" onchange="onThresholdInputChange(${idx})">
+                            <div class="calc-lbl" id="lbl-broken-calc-${idx}">Broken at: --</div>
+                            <div class="badge" id="badge-broken-${idx}">BROKEN</div>
+
+                            <label>Kills / Casualties:</label>
+                            <input type="number" id="spin-kills-${idx}" min="0" max="500" value="0" onchange="onThresholdInputChange(${idx})">
+                            <div class="calc-lbl" id="lbl-quarter-calc-${idx}">Quartered at: --</div>
+                            <div class="badge" id="badge-quartered-${idx}">QUARTERED</div>
+                        </div>
+                    </div>
+                    <div class="section-lbl">Army</div>
+                    <select id="army-combo-${idx}" onchange="onArmyChanged(${idx})" disabled>
+                        <option value="">── Select an army ──</option>
+                    </select>
+                    <div class="btn-row">
+                        <button id="hero-btn-${idx}" onclick="openHeroSelector(${idx})" disabled>Choose Heroes…</button>
+                        <button id="clear-btn-${idx}" class="danger" onclick="clearAll(${idx})" disabled>✕ Clear All</button>
+                    </div>
+                    <hr class="separator">
+                    <div class="scroll-area">
+                        <div class="cards-grid" id="cards-layout-${idx}">
+                            <div id="empty-lbl-${idx}" style="grid-column: 1 / -1; color: var(--text-dim); text-align: center; padding: 30px;">
+                                Select an army, then choose heroes.
+                            </div>
+                        </div>
+                    </div>
+                `;
+                updateBadgeStyle(`badge-broken-${idx}`, "#555555");
+                updateBadgeStyle(`badge-quartered-${idx}`, "#555555");
+            });
+        }
+
+        function updateBadgeStyle(elementId, color) {
+            document.getElementById(elementId).style.backgroundColor = color;
+        }
+
+        // Handles the network download step matching your QThread architecture
+        async function loadData() {
+            const btn = document.getElementById("reload-btn");
+            btn.disabled = true;
+            btn.innerText = "Fetching data…";
+            
+            try {
+                const response = await fetch(DATA_URL);
+                if (!response.ok) throw new Error("Network validation check failed.");
+                const raw = await response.json();
+                
+                parseArmies(raw);
+                
+                [0, 1].forEach(idx => {
+                    populateDropdown(idx);
+                    recalculateThresholds(idx);
+                });
+                btn.innerText = "⟳  Reload Data";
+            } catch (err) {
+                btn.innerText = "Error loading data.";
+                alert(`Could not fetch game data:\n\n${err.message}\n\nCheck your internet connection and try reloading.`);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function parseArmies(raw) {
+            const dataObj = raw.data || {};
+            armyHeroes = {};
+
+            const heroesList = dataObj.heroes || [];
+            heroesList.forEach(hero => {
+                if (!hero || typeof hero !== "object") return;
+                
+                const heroName = hero.name || "?";
+                const isUnique = Array.isArray(hero.unit_type) && hero.unit_type.includes("Unique");
+                
+                const entry = {
+                    name: heroName,
+                    might: parseInt(hero.might) || 0,
+                    will: parseInt(hero.will) || 0,
+                    fate: parseInt(hero.fate) || 0,
+                    wounds: parseInt(hero.wounds) || 1,
+                    unique: isUnique,
+                    unit_type: hero.unit_type || []
+                };
+
+                const factionsArr = hero.factions || [];
+                factionsArr.forEach(fRef => {
+                    let fname = "";
+                    if (typeof fRef === "string") fname = fRef;
+                    else if (fRef && typeof fRef === "object") fname = fRef.name || "";
+                    
+                    if (!fname) return;
+                    if (!armyHeroes[fname]) armyHeroes[fname] = [];
+                    armyHeroes[fname].push({ ...entry });
+                });
+            });
+
+            for (let fname in armyHeroes) {
+                armyHeroes[fname].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+            }
+            armyNames = Object.keys(armyHeroes).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        }
+
+        function populateDropdown(sideIdx) {
+            const combo = document.getElementById(`army-combo-${sideIdx}`);
+            combo.innerHTML = '<option value="">── Select an army ──</option>';
+            armyNames.forEach(name => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                combo.appendChild(opt);
+            });
+            combo.disabled = false;
+        }
+
+        function onArmyChanged(sideIdx) {
+            const combo = document.getElementById(`army-combo-${sideIdx}`);
+            const selectedVal = combo.value;
+            
+            if (!selectedVal) {
+                sides[sideIdx].currentArmy = null;
+                document.getElementById(`hero-btn-${sideIdx}`).disabled = true;
+                return;
+            }
+            sides[sideIdx].currentArmy = selectedVal;
+            document.getElementById(`hero-btn-${sideIdx}`).disabled = false;
+        }
+
+        function onThresholdInputChange(sideIdx) {
+            sides[sideIdx].total = parseInt(document.getElementById(`spin-total-${sideIdx}`).value) || 1;
+            sides[sideIdx].kills = parseInt(document.getElementById(`spin-kills-${sideIdx}`).value) || 0;
+            recalculateThresholds(sideIdx);
+        }
+
+        function recalculateThresholds(sideIdx) {
+            const p = sides[sideIdx];
+            
+            // Replicates exactly the math calculations of the updated Python file
+            let brokenThreshold = Math.ceil(p.total / 2);
+            let quarteredThreshold = Math.floor(p.total * 0.75) + 1;
+
+            document.getElementById(`lbl-broken-calc-${sideIdx}`).textContent = `Broken at: ${brokenThreshold} kills`;
+            document.getElementById(`lbl-quarter-calc-${sideIdx}`).textContent = `Quartered at: ${quarteredThreshold} kills`;
+
+            updateBadgeStyle(`badge-broken-${sideIdx}`, p.kills >= brokenThreshold ? "#d97706" : "#555555");
+            updateBadgeStyle(`badge-quartered-${sideIdx}`, p.kills >= quarteredThreshold ? "#dc2626" : "#555555");
+        }
+
+        function openHeroSelector(sideIdx) {
+            activeModalSide = sideIdx;
+            const p = sides[sideIdx];
+            const list = armyHeroes[p.currentArmy] || [];
+            
+            if (list.length === 0) {
+                alert("This army has no heroes defined.");
+                return;
+            }
+
+            const container = document.getElementById("modal-rows-container");
+            container.innerHTML = "";
+
+            list.forEach((hero, rIdx) => {
+                const currentCount = p.heroCounts[hero.name] || 0;
+                const row = document.createElement("div");
+                row.className = "selector-row";
+                
+                row.innerHTML = `
+                    <div class="sel-name">${hero.name}</div>
+                    <div class="sel-type" style="color: ${hero.unique ? 'var(--text-dim)' : '#7adfaa'}">
+                        ${hero.unique ? 'Unique' : 'Non-unique'}
+                    </div>
+                    <input type="number" id="modal-spin-${rIdx}" min="0" max="${hero.unique ? 1 : 99}" value="${currentCount}">
+                `;
+                container.appendChild(row);
+            });
+
+            document.getElementById("selector-modal").style.display = "flex";
+        }
+
+        function closeModal() {
+            document.getElementById("selector-modal").style.display = "none";
+            activeModalSide = null;
+        }
+
+        function confirmSelection() {
+            const sideIdx = activeModalSide;
+            const p = sides[sideIdx];
+            const list = armyHeroes[p.currentArmy] || [];
+            
+            let desiredSelections = [];
+            list.forEach((hero, rIdx) => {
+                const val = parseInt(document.getElementById(`modal-spin-${rIdx}`).value) || 0;
+                if (val > 0) {
+                    desiredSelections.push({ hero: hero, count: val });
+                }
+            });
+
+            let desiredMap = {};
+            desiredSelections.forEach(sel => {
+                desiredMap[sel.hero.name] = sel;
+            });
+
+            // Reconcile system state tracking deletions
+            for (let heroName in p.heroCounts) {
+                let current = p.heroCounts[heroName];
+                let wanted = desiredMap[heroName] ? desiredMap[heroName].count : 0;
+                if (wanted < current) {
+                    for (let i = wanted; i < current; i++) {
+                        delete p.cards[`${heroName}#${i}`];
+                    }
+                    if (wanted === 0) delete p.heroCounts[heroName];
+                    else p.heroCounts[heroName] = wanted;
+                }
+            }
+
+            // Reconcile system state tracking additions
+            desiredSelections.forEach(sel => {
+                let heroName = sel.hero.name;
+                let current = p.heroCounts[heroName] || 0;
+                let wanted = sel.count;
+                for (let i = current; i < wanted; i++) {
+                    const cardId = `${heroName}#${i}`;
+                    p.cards[cardId] = {
+                        hero: sel.hero,
+                        stats: {
+                            Might: sel.hero.might,
+                            Will: sel.hero.will,
+                            Fate: sel.hero.fate,
+                            Wounds: sel.hero.wounds
+                        }
+                    };
+                }
+                if (wanted > 0) p.heroCounts[heroName] = wanted;
+            });
+
+            refreshLayout(sideIdx);
+            closeModal();
+        }
+
+        function removeCard(sideIdx, cardId) {
+            const p = sides[sideIdx];
+            const heroName = cardId.split("#")[0];
+            
+            delete p.cards[cardId];
+
+            // Rebuild remaining elements to ensure clean sequential rendering indices
+            let remainingIds = Object.keys(p.cards).filter(id => id.split("#")[0] === heroName);
+            let count = remainingIds.length;
+
+            if (count === 0) {
+                delete p.heroCounts[heroName];
+            } else {
+                let oldCardsCache = {};
+                remainingIds.forEach(id => { oldCardsCache[id] = p.cards[id]; delete p.cards[id]; });
+                
+                let sortedOldIds = remainingIds.sort((a,b) => parseInt(a.split("#")[1]) - parseInt(b.split("#")[1]));
+                p.heroCounts[heroName] = count;
+                
+                sortedOldIds.forEach((oldId, newIdx) => {
+                    const newId = `${heroName}#${newIdx}`;
+                    p.cards[newId] = oldCardsCache[oldId];
+                });
+            }
+            refreshLayout(sideIdx);
+        }
+
+        function refreshLayout(sideIdx) {
+            const p = sides[sideIdx];
+            const container = document.getElementById(`cards-layout-${sideIdx}`);
+            container.innerHTML = "";
+
+            const sortedKeys = Object.keys(p.cards).sort((a, b) => {
+                const nameA = a.split("#")[0].casefold();
+                const nameB = b.split("#")[0].casefold();
+                if (nameA !== nameB) return nameA.localeCompare(nameB);
+                return parseInt(a.split("#")[1]) - parseInt(b.split("#")[1]);
+            });
+
+            document.getElementById(`clear-btn-${sideIdx}`).disabled = sortedKeys.length === 0;
+
+            if (sortedKeys.length === 0) {
+                container.innerHTML = `
+                    <div id="empty-lbl-${sideIdx}" style="grid-column: 1 / -1; color: var(--text-dim); text-align: center; padding: 30px;">
+                        Select an army, then choose heroes.
+                    </div>
+                `;
+                return;
+            }
+
+            sortedKeys.forEach(cardId => {
+                const cardData = p.cards[cardId];
+                const totalCopies = p.heroCounts[cardData.hero.name] || 1;
+                const idxLabel = totalCopies > 1 ? ` #${parseInt(cardId.split("#")[1]) + 1}` : "";
+                
+                const cardWidget = document.createElement("div");
+                cardWidget.className = "hero-card";
+                
+                let badgeText = cardData.hero.unit_type.join("  ·  ");
+                let badgeColor = cardData.hero.unique ? "var(--text-dim)" : "#7adfaa";
+                let badgeClass = cardData.hero.unique ? "hero-type-badge unique" : "hero-type-badge";
+
+                let rowsHtml = "";
+                statMetadata.forEach(meta => {
+                    const maxVal = cardData.hero[meta.key];
+                    const currentVal = cardData.stats[meta.label];
+                    const pct = maxVal > 0 ? (currentVal / maxVal) * 100 : 0;
+                    
+                    rowsHtml += `
+                        <div class="stat-row">
+                            <span class="stat-lbl" style="color: ${meta.color}">${meta.label}</span>
+                            <input type="number" min="0" max="${maxVal}" value="${currentVal}" 
+                                onchange="onStatChanged(${sideIdx}, '${cardId}', '${meta.label}', ${maxVal}, this)">
+                            <div class="progress-bg">
+                                <div class="progress-bar" style="width: ${pct}%; background-color: ${meta.color};"></div>
+                            </div>
+                            <span class="max-lbl">/ ${maxVal}</span>
+                        </div>
+                    `;
+                });
+
+                cardWidget.innerHTML = `
+                    <div class="hero-title-lbl">${cardData.hero.name}${idxLabel}</div>
+                    <div class="${badgeClass}" style="color: ${badgeColor};">${badgeText}</div>
+                    ${rowsHtml}
+                    <div class="card-actions">
+                        <button onclick="resetCard(${sideIdx}, '${cardId}')">↺ Reset</button>
+                        <button class="danger" onclick="removeCard(${sideIdx}, '${cardId}')">✕ Remove</button>
+                    </div>
+                `;
+                container.appendChild(cardWidget);
+            });
+        }
+
+        function onStatChanged(sideIdx, cardId, label, max, inputNode) {
+            let val = parseInt(inputNode.value) || 0;
+            if (val < 0) val = 0;
+            if (val > max) val = max;
+            inputNode.value = val;
+
+            sides[sideIdx].cards[cardId].stats[label] = val;
+            
+            // Dynamically synchronize the inner width metric of the custom bar block component
+            const rowNode = inputNode.parentElement;
+            const fillNode = rowNode.querySelector(".progress-bar");
+            const calculatedPercent = max > 0 ? (val / max) * 100 : 0;
+            fillNode.style.width = `${calculatedPercent}%`;
+        }
+
+        function resetCard(sideIdx, cardId) {
+            const cRef = sides[sideIdx].cards[cardId];
+            cRef.stats.Might = cRef.hero.might;
+            cRef.stats.Will = cRef.hero.will;
+            cRef.stats.Fate = cRef.hero.fate;
+            cRef.stats.Wounds = cRef.hero.wounds;
+            refreshLayout(sideIdx);
+        }
+
+        function clearAll(sideIdx) {
+            if (confirm(`Remove all heroes from ${sides[sideIdx].name}?`)) {
+                sides[sideIdx].cards = {};
+                sides[sideIdx].heroCounts = {};
+                refreshLayout(sideIdx);
+            }
+        }
+
+        // Native polyfill matching Python string operations casefold feature
+        String.prototype.casefold = function() {
+            return this.toLowerCase();
+        };
+
+        // Window entry instantiation calls
+        buildPanels();
+        loadData();
+    </script>
+</body>
+</html>
