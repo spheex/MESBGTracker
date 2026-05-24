@@ -378,7 +378,7 @@
                 if (!hero || typeof hero !== "object") return;
                 
                 const heroName = hero.name || "?";
-                const isUnique = Array.isArray(hero.unit_type) && hero.unit_type.includes("Unique");
+                const isUnique = Array.isArray(hero.unitType) && hero.unitType.includes("Unique");
                 
                 const entry = {
                     name: heroName,
@@ -387,7 +387,7 @@
                     fate: parseInt(hero.fate) || 0,
                     wounds: parseInt(hero.wounds) || 1,
                     unique: isUnique,
-                    unit_type: hero.unit_type || []
+                    unitType: hero.unitType || []
                 };
 
                 const factionsArr = hero.factions || [];
@@ -602,7 +602,7 @@
                 const cardWidget = document.createElement("div");
                 cardWidget.className = "hero-card";
                 
-                let badgeText = cardData.hero.unit_type.join("  ·  ");
+                let badgeText = cardData.hero.unitType.join("  ·  ");
                 let badgeColor = cardData.hero.unique ? "var(--text-dim)" : "#7adfaa";
                 let badgeClass = cardData.hero.unique ? "hero-type-badge unique" : "hero-type-badge";
 
