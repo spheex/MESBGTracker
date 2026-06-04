@@ -1,20 +1,15 @@
-"""
-Middle-Earth Strategy Battle Game – Hero Tracker
-Two-sided army tracker with support for non-unique (repeatable) heroes and casualty thresholds.
-"""
-
 import sys
 import json
 import urllib.request
 import math
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QScrollArea, QFrame,
     QMessageBox, QGridLayout, QProgressBar,
-    QListWidget, QListWidgetItem, QAbstractItemView, QSpinBox,
-    QGroupBox, QStatusBar, QSplitter,
+    QSpinBox, QGroupBox, QStatusBar, QSplitter, QTableWidget, QTableWidgetItem, QHeaderView
 )
 
 DATA_URL = "https://nowforwrath.github.io/data2024.json"
@@ -32,10 +27,9 @@ TEXT_DIM     = "#c8b8b9"
 BTN_BG       = "#a58650"
 BTN_HOVER    = "#c9a96e"
 
-# Status colors for indicator badges
 COLOR_INACTIVE = "#555555"
-COLOR_BROKEN   = "#d97706"  # Amber/Orange
-COLOR_QUARTERED = "#dc2626" # Deep Red
+COLOR_BROKEN   = "#d97706"  
+COLOR_QUARTERED = "#dc2626" 
 
 SIDE_COLOURS = ["#2a5aaa", "#aa2a2a"]
 SIDE_NAMES   = ["Side 1", "Side 2"]
@@ -67,13 +61,6 @@ QComboBox QAbstractItemView {{
     background-color: {BG_MID}; color: {TEXT_MAIN};
     selection-background-color: {ACCENT}; border: 1px solid {ACCENT};
 }}
-QListWidget {{
-    background-color: {BG_MID}; color: {TEXT_MAIN};
-    border: 1px solid {ACCENT}; border-radius: 4px;
-}}
-QListWidget::item {{ padding: 4px 8px; }}
-QListWidget::item:selected {{ background-color: {ACCENT}; }}
-QListWidget::item:hover    {{ background-color: {BG_CARD}; }}
 QPushButton {{
     background-color: {BTN_BG}; color: #1a0a0a;
     border: none; border-radius: 4px;
@@ -131,11 +118,24 @@ QLabel#badge {{
     font-size: 11px;
     color: #ffffff;
 }}
+
+QTableWidget {{
+    background-color: {BG_MID};
+    border: 1px solid {ACCENT};
+    gridline-color: {BG_DARK};
+    color: {TEXT_MAIN};
+}}
+QHeaderView::section {{
+    background-color: {BG_CARD};
+    color: {GOLD_LIGHT};
+    padding: 4px;
+    font-weight: bold;
+    border: 1px solid {ACCENT};
+}}
 """
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Background data-loading thread
+# Background data-loading thread & Parsing
 # ─────────────────────────────────────────────────────────────────────────────
 class DataLoader(QThread):
     finished = pyqtSignal(dict)
@@ -150,19 +150,10 @@ class DataLoader(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
 
-
 def is_unique(hero: dict) -> bool:
-    """Return True if the hero has 'Unique' in their unit_type list."""
     return "Unique" in hero.get("unitType", [])
 
-
 def parse_armies(raw: dict) -> tuple[list[str], dict[str, list[dict]]]:
-    """
-    Returns:
-        army_names  – sorted list of faction name strings
-        army_heroes – { faction_name: [ hero_dict, ... ] }
-    Each hero_dict contains: name, might, will, fate, wounds, unique (bool).
-    """
     raw_data = raw.get("data", {})
     army_heroes: dict[str, list[dict]] = {}
 
@@ -204,7 +195,126 @@ def parse_armies(raw: dict) -> tuple[list[str], dict[str, list[dict]]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stat row widget
+# Dice Matrix Calculator Component
+# ─────────────────────────────────────────────────────────────────────────────
+class DiceMatrixCalculator(QGroupBox):
+    def __init__(self, parent=None):
+        super().__init__("Duel Roll Odds Calculator Matrix", parent)
+        self._build_ui()
+        self.calculate_probabilities()
+
+    def _build_ui(self):
+        main_layout = QHBoxLayout(self)
+        main_layout.setSpacing(15)
+
+        # Left Panel: Controls
+        ctrl_widget = QWidget()
+        ctrl_layout = QVBoxLayout(ctrl_widget)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
+        ctrl_layout.setSpacing(8)
+
+        lbl_own = QLabel("Your Dice:")
+        self.spin_own = QSpinBox()
+        self.spin_own.setRange(1, 12)
+        self.spin_own.setValue(3)
+        self.spin_own.valueChanged.connect(self.calculate_probabilities)
+        
+        lbl_enemy = QLabel("Enemy Dice:")
+        self.spin_enemy = QSpinBox()
+        self.spin_enemy.setRange(1, 12)
+        self.spin_enemy.setValue(3)
+        self.spin_enemy.valueChanged.connect(self.calculate_probabilities)
+
+        lbl_fv = QLabel("Fight Value (FV):")
+        self.combo_fv = QComboBox()
+        self.combo_fv.addItems(["Your FV is Higher", "FVs are Equal (Roll-off)", "Your FV is Lower"])
+        self.combo_fv.setCurrentIndex(1)
+        self.combo_fv.currentIndexChanged.connect(self.calculate_probabilities)
+
+        self.lbl_result = QLabel("Odds: --")
+        self.lbl_result.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {GOLD_LIGHT}; margin-top: 5px;")
+
+        ctrl_layout.addWidget(lbl_own)
+        ctrl_layout.addWidget(self.spin_own)
+        ctrl_layout.addWidget(lbl_enemy)
+        ctrl_layout.addWidget(self.spin_enemy)
+        ctrl_layout.addWidget(lbl_fv)
+        ctrl_layout.addWidget(self.combo_fv)
+        ctrl_layout.addWidget(self.lbl_result)
+        ctrl_layout.addStretch()
+
+        main_layout.addWidget(ctrl_widget, stretch=0)
+
+        # Right Panel: Dynamic Matrix Display
+        self.table = QTableWidget()
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        
+        # Access the headers to style them
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        main_layout.addWidget(self.table, stretch=1)
+
+    def _get_win_probability(self, a_dice: int, d_dice: int, fv_status: int) -> float:
+        win_prob = 0.0
+        for i in range(1, 7):
+            p_own_is_i = (i**a_dice - (i-1)**a_dice) / (6**a_dice)
+            p_enemy_less_i = ((i-1)**d_dice) / (6**d_dice)
+            p_enemy_equal_i = (i**d_dice - (i-1)**d_dice) / (6**d_dice)
+
+            win_prob += p_own_is_i * p_enemy_less_i
+
+            if fv_status == 0:
+                win_prob += p_own_is_i * p_enemy_equal_i
+            elif fv_status == 1:
+                win_prob += p_own_is_i * p_enemy_equal_i * 0.5
+                
+        return win_prob
+
+    def calculate_probabilities(self):
+        own_val = self.spin_own.value()
+        enemy_val = self.spin_enemy.value()
+        fv_idx = self.combo_fv.currentIndex()
+
+        # Dynamic size: always show at least a 6x6 grid, but expand if dice go higher
+        max_rows = max(6, enemy_val)
+        max_cols = max(6, own_val)
+
+        # Update table dimensions dynamically
+        self.table.setRowCount(max_rows)
+        self.table.setColumnCount(max_cols)
+
+        # Update headers dynamically
+        self.table.setHorizontalHeaderLabels([f"{c+1} Att" for c in range(max_cols)])
+        self.table.setVerticalHeaderLabels([f"{r+1} Def" for r in range(max_rows)])
+
+        # Calculate the single active string result
+        active_prob = self._get_win_probability(own_val, enemy_val, fv_idx)
+        self.lbl_result.setText(f"Win Probability:\n★ {active_prob * 100:.1f}% ★")
+
+        # Re-populate the dynamic grid size
+        for r in range(max_rows):
+            d_dice = r + 1
+            for c in range(max_cols):
+                a_dice = c + 1
+                prob = self._get_win_probability(a_dice, d_dice, fv_idx)
+                
+                item = QTableWidgetItem(f"{prob * 100:.1f}%")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                
+                if d_dice == enemy_val and a_dice == own_val:
+                    item.setBackground(QColor("#841912"))  # ACCENT color highlight
+                    item.setForeground(QColor("#ffffff"))
+                else:
+                    item.setBackground(QColor("transparent"))
+                    item.setForeground(QColor("#fffffe"))  # TEXT_MAIN color
+                    
+                self.table.setItem(r, c, item)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single-side panel
 # ─────────────────────────────────────────────────────────────────────────────
 class StatRow(QWidget):
     COLOURS = {
@@ -254,9 +364,6 @@ class StatRow(QWidget):
     def reset(self): self.spin.setValue(self.maximum)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Hero card
-# ─────────────────────────────────────────────────────────────────────────────
 class HeroCard(QGroupBox):
     remove_requested = pyqtSignal(str)
 
@@ -308,11 +415,7 @@ class HeroCard(QGroupBox):
             sr.reset()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Hero selector popup
-# ─────────────────────────────────────────────────────────────────────────────
 class HeroSelectorRow(QWidget):
-
     def __init__(self, hero: dict, current_count: int, parent=None):
         super().__init__(parent)
         self.hero = hero
@@ -335,20 +438,16 @@ class HeroSelectorRow(QWidget):
         badge.setFixedWidth(72)
         row.addWidget(badge)
 
-        # Count control
         if unique:
-            # Simple checkbox-style: 0 or 1
             self.spin = QSpinBox()
             self.spin.setRange(0, 1)
             self.spin.setValue(min(current_count, 1))
             self.spin.setFixedWidth(52)
-            self.spin.setToolTip("Unique – can only be taken once")
         else:
             self.spin = QSpinBox()
             self.spin.setRange(0, 99)
             self.spin.setValue(current_count)
             self.spin.setFixedWidth(52)
-            self.spin.setToolTip("Non-unique – set how many copies to field")
         row.addWidget(self.spin)
 
         copies_lbl = QLabel("cop." if not unique else "")
@@ -423,11 +522,7 @@ class HeroSelector(QWidget):
         self.close()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Single-side panel
-# ─────────────────────────────────────────────────────────────────────────────
 class SidePanel(QWidget):
-
     def __init__(self, side_index: int, parent=None):
         super().__init__(parent)
         self.side_index  = side_index
@@ -444,7 +539,6 @@ class SidePanel(QWidget):
         self._build_ui()
 
     def _update_badge_style(self, badge: QLabel, bg_color: str):
-        # Simply update the background color. Qt already knows the object name is "badge".
         badge.setStyleSheet(f"background-color: {bg_color};")
 
     def _build_ui(self):
@@ -459,18 +553,15 @@ class SidePanel(QWidget):
         )
         root.addWidget(hdr)
 
-        # ── Roster Status Tracker (Casualties, Broken & Quartered) ────────────
         status_box = QGroupBox("Roster Status Tracker")
         status_layout = QGridLayout(status_box)
         status_layout.setSpacing(10)
 
-        # Labels
         lbl_total = QLabel("Starting Units:")
         lbl_kills = QLabel("Kills / Casualties:")
         status_layout.addWidget(lbl_total, 0, 0)
         status_layout.addWidget(lbl_kills, 1, 0)
 
-        # Inputs
         self.spin_total = QSpinBox()
         self.spin_total.setRange(1, 500)
         self.spin_total.setValue(1)
@@ -483,7 +574,6 @@ class SidePanel(QWidget):
         self.spin_kills.valueChanged.connect(self._recalculate_thresholds)
         status_layout.addWidget(self.spin_kills, 1, 1)
 
-        # Info Displays
         self.lbl_broken_calc = QLabel("Broken at: --")
         self.lbl_broken_calc.setStyleSheet(f"color: {TEXT_DIM}; font-size: 11px;")
         status_layout.addWidget(self.lbl_broken_calc, 0, 2)
@@ -492,7 +582,6 @@ class SidePanel(QWidget):
         self.lbl_quarter_calc.setStyleSheet(f"color: {TEXT_DIM}; font-size: 11px;")
         status_layout.addWidget(self.lbl_quarter_calc, 1, 2)
 
-        # Status Badges
         self.badge_broken = QLabel("BROKEN")
         self.badge_broken.setObjectName("badge")
         self.badge_broken.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -505,11 +594,9 @@ class SidePanel(QWidget):
 
         root.addWidget(status_box)
         
-        # Reset visual lights initially
         self._update_badge_style(self.badge_broken, COLOR_INACTIVE)
         self._update_badge_style(self.badge_quartered, COLOR_INACTIVE)
 
-        # ── Army Setup ────────────────────────────────────────────────────────
         army_lbl = QLabel("Army")
         army_lbl.setObjectName("section")
         root.addWidget(army_lbl)
@@ -536,7 +623,6 @@ class SidePanel(QWidget):
         sep.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(sep)
 
-        # ── Dashboard Layout ──────────────────────────────────────────────────
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -555,27 +641,16 @@ class SidePanel(QWidget):
         self.scroll.setWidget(self.cards_container)
         root.addWidget(self.scroll, stretch=1)
 
-    #def _update_badge_style(self, badge: QLabel, bg_color: str):
-    #    badge.setStyleSheet(f"background-color: {bg_color}; id: 'badge';")
-
     def _recalculate_thresholds(self):
         total = self.spin_total.value()
         kills = self.spin_kills.value()
 
-        # MESBG rules: Broken at EQUAL TO OR GREATER THAN 50% casualties
-        # For 10 units, 10 / 2 = 5 kills. For 11 units, 11 / 2 = 5.5 -> rounds up to 6 kills.
         broken_threshold = math.ceil(total / 2)
-
-        # Quartered: Remaining models are strictly LESS THAN 25%
-        # This is mathematically identical to casualties being strictly GREATER THAN 75%
-        # For 10 units: 75% is 7.5 kills. Strictly greater than 7.5 means 8 kills.
-        # For 12 units: 75% is 9 kills. Strictly greater than 9 means 10 kills.
         quartered_threshold = math.floor(total * 0.75) + 1
 
         self.lbl_broken_calc.setText(f"Broken at: {broken_threshold} kills")
         self.lbl_quarter_calc.setText(f"Quartered at: {quartered_threshold} kills")
 
-        # Evaluate current conditions and light up badges
         if kills >= broken_threshold:
             self._update_badge_style(self.badge_broken, COLOR_BROKEN)
         else:
@@ -729,11 +804,10 @@ class SidePanel(QWidget):
 # Main window
 # ─────────────────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MESBG Hero & Casualties Tracker")
-        self.resize(1240, 840)
+        self.resize(1240, 920) # Slightly increased height for the matrix
         self._build_ui()
         self._load_data()
 
@@ -747,6 +821,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(8)
 
+        # Header Title
         top = QHBoxLayout()
         icon = QLabel("⚔")
         icon.setStyleSheet(f"font-size: 26px; color: {GOLD};")
@@ -772,6 +847,7 @@ class MainWindow(QMainWindow):
         sep.setFrameShape(QFrame.Shape.HLine)
         root.addWidget(sep)
 
+        # Main Splitter (Holds Left Side and Right Side Trackers)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(4)
         splitter.setChildrenCollapsible(False)
@@ -782,7 +858,16 @@ class MainWindow(QMainWindow):
             splitter.addWidget(panel)
 
         splitter.setSizes([620, 620])
-        root.addWidget(splitter, stretch=1)
+        root.addWidget(splitter, stretch=3)
+
+        # Bottom Separator
+        sep2 = QFrame(); sep2.setObjectName("separator")
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        root.addWidget(sep2)
+
+        # New Feature Placement: Dice Probability Matrix Widget Block
+        self.dice_matrix_calc = DiceMatrixCalculator()
+        root.addWidget(self.dice_matrix_calc, stretch=1)
 
     def _load_data(self):
         self.reload_btn.setEnabled(False)
@@ -798,7 +883,7 @@ class MainWindow(QMainWindow):
         army_names, army_heroes = parse_armies(raw)
         for panel in self.side_panels:
             panel.populate(army_names, army_heroes)
-            panel._recalculate_thresholds() # trigger initial state display
+            panel._recalculate_thresholds()
         self.reload_btn.setEnabled(True)
         self.statusBar().showMessage(f"Loaded {len(army_names)} armies.  Ready.")
 
@@ -811,7 +896,6 @@ class MainWindow(QMainWindow):
             "Check your internet connection and try reloading."
         )
 
-
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
@@ -819,7 +903,6 @@ def main():
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
